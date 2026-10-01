@@ -1875,6 +1875,12 @@ body.modal-overlay-active #modal_overlay {
   margin-bottom: 0 !important;
 }
 
+// In modal dialogs, keep the first action (e.g. "Close") on the left
+// and the remaining actions (e.g. "Save") on the right.
+.modal .button-row>.btn:first-child:not(:last-child) {
+  margin-right: auto;
+}
+
 .center,
 .center::before {
   text-align: center !important;
