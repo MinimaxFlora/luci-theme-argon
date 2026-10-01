@@ -1,5 +1,70 @@
 # Update log for master branch
 
+## v2.4.7 [ 2026.10.01 ]
+
+# luci-theme-argon v2.4.7
+
+### Overview
+
+This release updates Argon theme compatibility and improves the maintainability of the project for modern OpenWrt LuCI environments.
+
+### What's Changed
+
+### ✨ Improvements
+
+- Improved compatibility with newer OpenWrt and LuCI versions
+- Updated theme templates and frontend resources
+- Improved online wallpaper handling and extensibility
+- Refined theme structure for easier future customization
+
+### 🖼 Wallpaper System
+
+- Improved wallpaper API integration
+- Prepared support for custom wallpaper providers
+- Enhanced wallpaper loading reliability
+
+### 🐛 Bug Fixes
+
+- Fixed minor UI rendering issues
+- Fixed theme display issues under certain LuCI pages
+- Improved browser compatibility
+
+### 🔧 Maintenance
+
+- Updated project version information
+- Cleaned up unused resources
+- Improved code organization and maintainability
+
+### Compatibility
+
+Supported environments:
+
+- OpenWrt 24.10+
+- OpenWrt master / snapshot
+- ImmortalWrt
+
+### Upgrade Notes
+
+No configuration migration is required.
+
+Existing Argon theme settings will continue to work after upgrading.
+
+### Credits
+
+Based on the original Argon theme project:
+https://github.com/jerrykuku/luci-theme-argon
+
+Thanks to all contributors.
+
+### What's Changed
+* fix: align modal dialog actions to left and right layout by @MinimaxFlora in https://github.com/MinimaxFlora/luci-theme-argon/pull/1
+* feat(login): add password reveal toggle and cache-busted stylesheets by @MinimaxFlora in https://github.com/MinimaxFlora/luci-theme-argon/pull/2
+* chore(login): replace default login background image by @MinimaxFlora in https://github.com/MinimaxFlora/luci-theme-argon/pull/3
+
+### New Contributors
+* @MinimaxFlora made their first contribution in https://github.com/MinimaxFlora/luci-theme-argon/pull/1
+
+**Full Changelog**: https://github.com/MinimaxFlora/luci-theme-argon/commits/v2.4.7
 ## v2.4.7 [ 2026.08.24 ]
 
 ### What's Changed
