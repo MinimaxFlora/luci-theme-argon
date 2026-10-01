@@ -17,7 +17,7 @@
 -#}
 
 {%
-	import { access } from 'fs';
+	import { access, stat } from 'fs';
 	import { cursor } from 'uci';
 
 	const boardinfo = ubus.call("system", "board");
@@ -35,6 +35,13 @@
 
 	function validNumber(value, fallback, maximum) {
 		return type(value) == 'string' && match(value, /^(0|[1-9][0-9]*)(\.[0-9]+)?$/) && +value <= maximum ? value : fallback;
+	}
+
+	// Feed the stylesheet mtime into the URL so browsers never serve a stale
+	// theme after an update (the assets themselves are not content-hashed).
+	function assetVersion(path) {
+		let info = stat(path);
+		return info ? '' + info.mtime : '';
 	}
 
 	let mode = 'normal';
@@ -57,6 +64,8 @@
 			mode = configured_mode;
 	}
 	const bar_color = mode == 'dark' ? dark_primary : primary;
+	const css_version = assetVersion('/www' + media + '/css/cascade.css');
+	const dark_css_version = assetVersion('/www' + media + '/css/dark.css');
 
 -%}
 <!DOCTYPE html>
@@ -65,11 +74,11 @@
 <head>
 	{% include("themes/" + theme + "/head_meta", { hostname: hostname, node: node, bar_color: bar_color, media: media }) %}
 
-	<link rel="stylesheet" href="{{ media }}/css/cascade.css{# ?v=PKG_VERSION #}">
+	<link rel="stylesheet" href="{{ media }}/css/cascade.css?v={{ css_version }}">
 	{% if (mode == 'normal'): %}
-	<link rel="stylesheet" href="{{ media }}/css/dark.css{# ?v=PKG_VERSION #}" media="(prefers-color-scheme: dark)">
+	<link rel="stylesheet" href="{{ media }}/css/dark.css?v={{ dark_css_version }}" media="(prefers-color-scheme: dark)">
 	{% elif (mode == 'dark'): %}
-	<link rel="stylesheet" href="{{ media }}/css/dark.css{# ?v=PKG_VERSION #}">
+	<link rel="stylesheet" href="{{ media }}/css/dark.css?v={{ dark_css_version }}">
 	{% endif %}
 	<style title="text/css">
 		{% if (has_argon_config): %}

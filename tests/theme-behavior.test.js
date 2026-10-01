@@ -84,8 +84,10 @@ function runUcodeSnippet(file, start, end, setup, result, settings = {}, hasConf
 }
 
 const configSetup = `
+let media = "/luci-static/argon";
 let cfg = { get_first: (packageName, section, key) => settings[key] };
 function access(path) { return hasConfig; }
+function stat(path) { return { mtime: 1700000000 }; }
 `;
 const configResult = '{mode, primary, dark_primary, blur_radius, blur_radius_dark, blur_opacity, blur_opacity_dark, bar_color}';
 
@@ -117,6 +119,18 @@ for (const template of ['header.ut', 'header_login.ut']) {
 		assert.equal(light.bar_color, '#123456');
 	});
 }
+
+test('stylesheet links carry an mtime cache-buster so updates are not cached', () => {
+	for (const template of ['header.ut', 'header_login.ut']) {
+		const source = fs.readFileSync(path.join(root, `ucode/template/themes/argon/${template}`), 'utf8');
+		assert.ok(source.includes("import { access, stat } from 'fs';"), `${template} imports stat`);
+		assert.match(source, /function assetVersion\(path\)/);
+		assert.match(source, /return info \? '' \+ info\.mtime : '';/);
+		assert.match(source, /css\/cascade\.css\?v=\{\{ css_version \}\}/);
+		assert.match(source, /css\/dark\.css\?v=\{\{ dark_css_version \}\}/);
+		assert.doesNotMatch(source, /css\/(?:cascade|dark)\.css\{#/);
+	}
+});
 
 test('local backgrounds accept dotted names and encode spaces', () => {
 	const setup = `
@@ -199,6 +213,16 @@ function entityencode(value, attribute) {
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+test('login password field provides an accessible reveal toggle', () => {
+	const source = fs.readFileSync(path.join(root, 'ucode/template/themes/argon/sysauth.ut'), 'utf8');
+	assert.match(source, /id="cbi-input-password" type="password"/);
+	assert.match(source, /class="password-toggle"/);
+	assert.match(source, /aria-pressed="false"/);
+	assert.ok(source.includes("_('Reveal/hide password')"));
+	assert.match(source, /passwordInput\.type = reveal \? 'text' : 'password'/);
+	assert.match(source, /classList\.toggle\('is-visible'/);
 });
 
 test('Unsplash falls back on missing key or failed fetch', () => {
