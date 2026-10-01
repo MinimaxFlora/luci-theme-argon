@@ -2771,6 +2771,9 @@ body.modal-overlay-active #modal_overlay {
   justify-content: flex-end;
   margin-bottom: 0 !important;
 }
+.modal .button-row > .btn:first-child:not(:last-child) {
+  margin-right: auto;
+}
 .center,
 .center::before {
   text-align: center !important;
