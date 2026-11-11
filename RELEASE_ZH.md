@@ -1,5 +1,10 @@
 # Master 分支的更新日志
 
+## v3.1.3 [ 2026.11.11 ]
+
+- GitHub Release: https://github.com/MinimaxFlora/luci-theme-argon/releases/tag/v3.1.3
+- 详细更新内容请以 Release 页面为准。
+
 ## v3.1.3 [ 2026.11.06 ]
 
 - 修复部分固件升级后 Argon 翻译丢失，保留已有翻译，并在后续在线升级时同步语言包（#737）。
