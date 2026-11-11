@@ -35,16 +35,56 @@ String.prototype.format = function(...values) {
 	return this.replace(/%s/g, () => values[i++]);
 };
 
-function loadMenu(dispatchpath, container) {
+function loadMenu(dispatchpath, container, icons = '') {
 	return new Function('baseclass', 'ui', 'L', 'E', 'document', '_', menuSource)(
 		{ extend: value => value },
-		{ menu: { getChildren: node => node.children || [] } },
-		{ env: { dispatchpath }, url: (...parts) => parts.join('/') },
+		{ menu: { getChildren: node => node.children || [] }, createHandlerFn: (object, name) => object[name].bind(object) },
+		{ env: { dispatchpath }, url: (...parts) => parts.join('/'), media: (...parts) => '/luci-static/argon/' + parts.join('/') },
 		element,
-		{ querySelector: () => container },
+		{ querySelectorAll: () => [], querySelector: selector => selector == 'meta[name="argon-menu-icons"]'
+			? (icons === null ? null : { getAttribute: () => icons }) : container },
 		value => value
 	);
 }
+
+test('menu icons use exact node names and fall back without requesting missing files', () => {
+	const menu = loadMenu([], null, 'default.svg status.svg system.svg');
+	for (const name of ['status', 'system']) {
+		const icon = menu.renderMenuIcon(name);
+		assert.equal(icon.attrs['data-icon'], name);
+		assert.equal(icon.attrs['aria-hidden'], 'true');
+		assert.match(icon.attrs.style, new RegExp('/icon/' + name + '\\.svg'));
+	}
+	for (const name of ['Status', '状态', 'missing', '../status', 'status.svg', 'status";color:red']) {
+		const icon = menu.renderMenuIcon(name);
+		assert.equal(icon.attrs['data-icon'], 'default');
+		assert.match(icon.attrs.style, /\/icon\/default\.svg/);
+	}
+	assert.equal(loadMenu([], null, null).renderMenuIcon('status').attrs['data-icon'], 'default');
+});
+
+test('translated menu labels keep node-name icons and nested links keep their layout', () => {
+	const container = element('div');
+	const menu = loadMenu([], container, 'default.svg status.svg');
+	const rendered = menu.renderMainMenu({ name: 'admin', children: [{
+		name: 'status', title: '状态', children: [{ name: 'overview', title: '概览' }]
+	}] }, 'admin');
+	const link = rendered.children[0].children[0];
+	assert.equal(link.children[0].attrs['data-icon'], 'status');
+	assert.equal(link.children[1], '状态');
+	assert.equal(rendered.children[0].children[1].children[0].children[0].children[0], '概览');
+});
+
+test('clicking a decorative SVG is handled by its navigation link', () => {
+	const menu = loadMenu([], null);
+	const link = { parentNode: { querySelector: () => null }, nextElementSibling: {}, blur() {} };
+	const icon = { parentNode: link, nextElementSibling: null };
+	let prevented = false, stopped = false;
+	menu.handleMenuExpand({ target: icon, currentTarget: link,
+		preventDefault: () => { prevented = true; }, stopPropagation: () => { stopped = true; } });
+	assert.equal(prevented, true);
+	assert.equal(stopped, true);
+});
 
 test('nested LuCI tabs stay in parent-to-child order', () => {
 	const container = element('div');
@@ -73,6 +113,8 @@ function runUcodeSnippet(file, start, end, setup, result, settings = {}, hasConf
 	writeFileSync(script, `${setup}\n${source.slice(first, last)}\nprint(sprintf("%J", ${result}));\n`);
 	try {
 		const output = execFileSync(process.env.UCODE_BIN || 'ucode', [
+			'-L', path.join(path.dirname(process.env.UCODE_BIN || 'ucode'), '*.so'),
+			'-L', path.join(root, 'root/usr/share/ucode/*.uc'),
 			`-Dsettings=${JSON.stringify(settings)}`,
 			`-DhasConfig=${JSON.stringify(hasConfig)}`,
 			script
@@ -84,58 +126,58 @@ function runUcodeSnippet(file, start, end, setup, result, settings = {}, hasConf
 }
 
 const configSetup = `
-let media = "/luci-static/argon";
+import { dark_palette, appearance_modes } from 'luci.argon-palette';
 let cfg = { get_first: (packageName, section, key) => settings[key] };
 function access(path) { return hasConfig; }
-function stat(path) { return { mtime: 1700000000 }; }
 `;
+
+test('the SVG catalog includes only safe regular SVG files and tolerates a missing directory', () => {
+	const setup = `
+function lsdir(path) { return settings.files; }
+function lstat(path) {
+  let parts = split(path, '/');
+  return { type: settings.types?.[parts[length(parts) - 1]] ?? 'file' };
+}
+`;
+	const catalog = settings => runUcodeSnippet('ucode/template/themes/argon/head.ut',
+		'const icon_dir =', '\n\t%}', setup, 'menu_icons', settings);
+	assert.deepEqual(catalog({ files: ['status.svg', 'custom-menu.svg', 'favicon.png', '../system.svg',
+		'bad name.svg', 'bad".svg', 'folder.svg', 'linked.svg'], types: { 'folder.svg': 'directory', 'linked.svg': 'symlink' } }),
+		['status.svg', 'custom-menu.svg']);
+	assert.deepEqual(catalog({ files: null }), []);
+});
 const configResult = '{mode, primary, dark_primary, blur_radius, blur_radius_dark, blur_opacity, blur_opacity_dark, bar_color}';
 
-for (const template of ['header.ut', 'header_login.ut']) {
-	const file = `ucode/template/themes/argon/${template}`;
-	test(`${template} uses safe defaults for missing and invalid settings`, () => {
-		const empty = runUcodeSnippet(file, 'function validColor', '\n-%}', configSetup, configResult);
-		assert.deepEqual(empty, {
-			mode: 'normal', primary: '#5e72e4', dark_primary: '#483d8b',
-			blur_radius: '10', blur_radius_dark: '10',
-			blur_opacity: '0.5', blur_opacity_dark: '0.5', bar_color: '#5e72e4'
-		});
-		assert.deepEqual(runUcodeSnippet(file, 'function validColor', '\n-%}', configSetup, configResult, {}, false), empty);
-		const invalid = runUcodeSnippet(file, 'function validColor', '\n-%}', configSetup, configResult, {
-			primary: 'red;}', blur: '-1', transparency: '2', mode: 'unknown'
-		});
-		assert.deepEqual(invalid, empty);
-		const dark = runUcodeSnippet(file, 'function validColor', '\n-%}', configSetup, configResult, {
-			primary: '#123456', dark_primary: '#abcdef', blur: '0', transparency: '0.7', mode: 'dark'
-		});
-		assert.equal(dark.mode, 'dark');
-		assert.equal(dark.bar_color, '#abcdef');
-		assert.equal(dark.blur_radius, '0');
-		assert.equal(dark.blur_opacity, '0.7');
-		const light = runUcodeSnippet(file, 'function validColor', '\n-%}', configSetup, configResult, {
-			primary: '#123456', mode: 'light'
-		});
-		assert.equal(light.mode, 'light');
-		assert.equal(light.bar_color, '#123456');
+test('shared head uses safe defaults for missing and invalid settings', () => {
+	const empty = runUcodeSnippet('ucode/template/themes/argon/head.ut', 'function validColor', '\n-%}', configSetup, configResult);
+	assert.deepEqual(empty, {
+		mode: 'normal', primary: '#5e72e4', dark_primary: '#5a6cc5',
+		blur_radius: '10', blur_radius_dark: '10',
+		blur_opacity: '0.5', blur_opacity_dark: '0.5', bar_color: '#5e72e4'
 	});
-}
-
-test('stylesheet links carry an mtime cache-buster so updates are not cached', () => {
-	for (const template of ['header.ut', 'header_login.ut']) {
-		const source = fs.readFileSync(path.join(root, `ucode/template/themes/argon/${template}`), 'utf8');
-		assert.ok(source.includes("import { access, stat } from 'fs';"), `${template} imports stat`);
-		assert.match(source, /function assetVersion\(path\)/);
-		assert.match(source, /return info \? '' \+ info\.mtime : '';/);
-		assert.match(source, /css\/cascade\.css\?v=\{\{ css_version \}\}/);
-		assert.match(source, /css\/dark\.css\?v=\{\{ dark_css_version \}\}/);
-		assert.doesNotMatch(source, /css\/(?:cascade|dark)\.css\{#/);
-	}
+	assert.deepEqual(runUcodeSnippet('ucode/template/themes/argon/head.ut', 'function validColor', '\n-%}', configSetup, configResult, {}, false), empty);
+	const invalid = runUcodeSnippet('ucode/template/themes/argon/head.ut', 'function validColor', '\n-%}', configSetup, configResult, {
+		primary: 'red;}', blur: '-1', transparency: '2', mode: 'unknown'
+	});
+	assert.deepEqual(invalid, empty);
+	const dark = runUcodeSnippet('ucode/template/themes/argon/head.ut', 'function validColor', '\n-%}', configSetup, configResult, {
+		primary: '#123456', dark_primary: '#abcdef', blur: '0', transparency: '0.7', mode: 'dark'
+	});
+	assert.equal(dark.mode, 'dark');
+	assert.equal(dark.bar_color, '#abcdef');
+	assert.equal(dark.blur_radius, '0');
+	assert.equal(dark.blur_opacity, '0.7');
+	const light = runUcodeSnippet('ucode/template/themes/argon/head.ut', 'function validColor', '\n-%}', configSetup, configResult, {
+		primary: '#123456', mode: 'light'
+	});
+	assert.equal(light.mode, 'light');
+	assert.equal(light.bar_color, '#123456');
 });
 
 test('login layouts allow supported styles and fall back for old or invalid configs', () => {
 	const selected = (value, hasConfig = true) => runUcodeSnippet(
 		'ucode/template/themes/argon/sysauth.ut',
-		"let login_style = 'classic';", '\n\t// Per-request',
+		"let login_style = 'classic';", '\n\tconst boardinfo',
 		configSetup + '\nlet fs = { access };', 'login_style', { login_style: value }, hasConfig
 	);
 	assert.equal(selected('classic'), 'classic');
@@ -151,7 +193,7 @@ let fs = { lsdir: path => ['photo.jpg', 'my.photo.jpg', 'space name.webp', 'hash
 let http = { urlencode: value => replace(replace(replace(value, ' ', '%20'), '#', '%23'), '?', '%3F') };
 `;
 	const backgrounds = runUcodeSnippet(
-		'ucode/template/themes/argon/sysauth.ut',
+		'ucode/template/themes/argon/login_background.ut',
 		'const imageTypes', '\n\tfunction selectBackground',
 		setup, 'fetchMedia("/www/luci-static/argon/background", "/luci-static/argon/background/")'
 	);
@@ -180,14 +222,14 @@ function fetchMedia() {
 }
 function randomIndex() { return 0; }
 `;
-	const file = 'ucode/template/themes/argon/sysauth.ut';
+	const file = 'ucode/template/themes/argon/login_background.ut';
 	const start = 'function selectBackground';
-	const end = '\n\tconst boardinfo';
+	const end = '\n\tconst bgArry';
 	const selected = settings => runUcodeSnippet(file, start, end, setup, 'selectBackground("/luci-static/argon/background/")', settings);
 	assert.equal(selected({ url: 'https://example.com/image.jpg' }).bgUrl, 'https://example.com/image.jpg');
 	for (const invalid of ['http://example.com/image.jpg', 'https://example.com/a b.jpg', 'javascript:alert(1)', 'https://example.com/"bad'])
 		assert.equal(selected({ url: invalid }).bgUrl, '/luci-static/argon/background/local.jpg');
-	assert.equal(selected({ url: 'http://example.com/image.jpg', empty: true }).bgUrl, '/luci-static/argon/img/bg1.jpg');
+	assert.equal(selected({ url: 'http://example.com/image.jpg', empty: true }).bgUrl, '/luci-static/argon/img/bg1.webp');
 	assert.deepEqual(selected({ url: '', video: true }), {
 		bgUrl: '/luci-static/argon/background/local.mp4',
 		backgroundType: 'Video',
@@ -196,7 +238,7 @@ function randomIndex() { return 0; }
 });
 
 test('authentication fields preserve numeric length limits and escape attributes', () => {
-	const source = fs.readFileSync(path.join(root, 'ucode/template/themes/argon/sysauth.ut'), 'utf8');
+	const source = fs.readFileSync(path.join(root, 'ucode/template/themes/argon/login_form.ut'), 'utf8');
 	const first = source.indexOf('{%- if (auth_fields): %}');
 	const last = source.indexOf('{%- if (auth_html): %}', first);
 	assert.ok(first >= 0 && last > first);
@@ -228,16 +270,6 @@ function entityencode(value, attribute) {
 	}
 });
 
-test('login password field provides an accessible reveal toggle', () => {
-	const source = fs.readFileSync(path.join(root, 'ucode/template/themes/argon/sysauth.ut'), 'utf8');
-	assert.match(source, /id="cbi-input-password" type="password"/);
-	assert.match(source, /class="password-toggle"/);
-	assert.match(source, /aria-pressed="false"/);
-	assert.ok(source.includes("_('Reveal/hide password')"));
-	assert.match(source, /passwordInput\.type = reveal \? 'text' : 'password'/);
-	assert.match(source, /classList\.toggle\('is-visible'/);
-});
-
 test('Unsplash falls back on missing key or failed fetch', () => {
 	const source = fs.readFileSync(path.join(root, 'root/usr/libexec/rpcd/luci.argon_wallpaper'), 'utf8');
 	const imports = '. /lib/functions.sh\n. /usr/share/libubox/jshn.sh';
@@ -262,8 +294,11 @@ jsonfilter() { return 1; }
 	try {
 		const script = path.join(dir, 'wallpaper.sh');
 		const cache = path.join(dir, 'wallpaper.url');
+		const downloader = path.join(dir, 'wget');
+		writeFileSync(downloader, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
 		writeFileSync(cache, 'https://example.com/old.jpg\n');
 		writeFileSync(script, source.replace(imports, stub)
+			.replace('WGET=/usr/libexec/wget-ssl', `WGET="${downloader}"`)
 			.replace('CACHE="/var/run/argon_${WEB_PIC_SRC}.url"', 'CACHE="$TEST_CACHE"')
 			.replace('WRLOCK="/var/lock/argon_${WEB_PIC_SRC}.lock"', 'WRLOCK="$TEST_LOCK"'));
 		for (const wallpaper of ['unsplash', 'unsplash_123']) {
@@ -274,7 +309,7 @@ jsonfilter() { return 1; }
 			assert.deepEqual(JSON.parse(output), { url: '' });
 		}
 		rmSync(cache);
-		const failedFetch = execFileSync('bash', [script, 'call', 'get_url'], {
+		const failedFetch = execFileSync('sh', [script, 'call', 'get_url'], {
 			input: '{}\n', encoding: 'utf8',
 			env: { ...process.env, TEST_WALLPAPER: 'unsplash', TEST_KEY: 'test-key', TEST_CACHE: cache, TEST_LOCK: path.join(dir, 'lock') }
 		});
@@ -347,4 +382,29 @@ test('custom head icons replace every default candidate and restore as a group',
 		assert.doesNotMatch(custom, /favicon\.ico|icon\/favicon|icon\/android|icon\/apple|icon\/manifest/);
 		assert.equal(render({ logo: 'custom.png' }), defaults);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('login form reveals the password and modal actions split left/right', () => {
+	const form = fs.readFileSync(path.join(root, 'ucode/template/themes/argon/login_form.ut'), 'utf8');
+	// The toggle must be a real button inside the password field group, with the
+	// border span right after the input so the focus underline still matches.
+	assert.match(form, /<div class="input-group pass-icon">\s*<label[^>]*>\{\{ _\('Password'\) \}\}<\/label>\s*<input class="cbi-input-password"[^>]*\/>\s*<span class="border" aria-hidden="true"><\/span>\s*<button type="button" class="password-toggle"[^>]*aria-pressed="false"/);
+	assert.match(form, /class="password-toggle-show"/);
+	assert.match(form, /class="password-toggle-hide"/);
+	assert.match(form, /passwordInput\.type = reveal \? 'text' : 'password'/);
+	assert.match(form, /aria-pressed', reveal \? 'true' : 'false'/);
+
+	const less = fs.readFileSync(path.join(root, 'less/sysauth.less'), 'utf8');
+	assert.match(less, /\.password-toggle \{/);
+	assert.match(less, /&\.cbi-input-password \{\s*padding-inline-end: 3rem;/);
+	assert.match(less, /\.password-toggle-hide \{\s*display: none;/);
+
+	// The committed stylesheet must stay in sync with the LESS sources.
+	const css = fs.readFileSync(path.join(root, 'htdocs/luci-static/argon/css/cascade.css'), 'utf8');
+	assert.match(css, /\.input-group \.password-toggle \{/);
+	assert.match(css, /\.password-toggle\.is-visible \.password-toggle-hide \{\s*display: block;/);
+
+	const overlays = fs.readFileSync(path.join(root, 'less/components/overlays.less'), 'utf8');
+	assert.match(overlays, /\.button-row > \.btn:first-child:not\(:last-child\) \{\s*margin-right: auto;/);
+	assert.match(css, /\.modal \.button-row > \.btn:first-child:not\(:last-child\) \{\s*margin-right: auto;/);
 });
